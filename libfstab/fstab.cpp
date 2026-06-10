@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -676,7 +677,8 @@ bool ReadFstabFromFile(const std::string& path, Fstab* fstab) {
         return false;
     }
     if (path != kProcMountsPath && !InRecovery()) {
-        if (!access(android::gsi::kGsiBootedIndicatorFile, F_OK)) {
+        struct stat s;
+        if (lstat(android::gsi::kGsiBootedIndicatorFile, &s) == 0 && S_ISREG(s.st_mode)) {
             std::string dsu_slot;
             if (!android::gsi::GetActiveDsu(&dsu_slot)) {
                 PERROR << __FUNCTION__ << "(): failed to get active DSU slot";
@@ -688,8 +690,8 @@ bool ReadFstabFromFile(const std::string& path, Fstab* fstab) {
                 return false;
             }
             TransformFstabForDsu(fstab, dsu_slot, Split(lp_names, ","));
-        } else if (errno != ENOENT) {
-            PERROR << __FUNCTION__ << "(): failed to access() DSU booted indicator";
+        } else if (errno != ENOENT && errno != ENOTDIR) {
+            PERROR << __FUNCTION__ << "(): failed to lstat() DSU booted indicator";
             return false;
         }
 
