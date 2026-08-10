@@ -2324,7 +2324,7 @@ bool fs_mgr_verity_is_check_at_most_once(const android::fs_mgr::FstabEntry& entr
     return hashtree_info->check_at_most_once;
 }
 
-std::string fs_mgr_get_super_partition_name() {
+std::string fs_mgr_get_super_partition_name(int slot) {
 #ifndef MICRODROID
     // Devices upgrading to dynamic partitions are allowed to specify a super
     // partition name. This includes cuttlefish, which is a non-A/B device.
@@ -2333,11 +2333,23 @@ std::string fs_mgr_get_super_partition_name() {
         return super_partition;
     }
     if (fs_mgr_get_boot_config("super_partition", &super_partition)) {
-        return super_partition;
+        if (fs_mgr_get_slot_suffix().empty()) {
+            return super_partition;
+        }
+        std::string suffix;
+        if (slot == 0) {
+            suffix = "_a";
+        } else if (slot == 1) {
+            suffix = "_b";
+        } else if (slot == -1) {
+            suffix = fs_mgr_get_slot_suffix();
+        }
+        return super_partition + suffix;
     }
     return LP_METADATA_DEFAULT_PARTITION_NAME;
 #else
     // Microdroid should not use super partition at all
+    (void)slot;
     return "";
 #endif
 }
