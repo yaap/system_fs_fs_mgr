@@ -987,6 +987,8 @@ bool SnapshotManager::MapSourceDevice(LockedFile* lock, const std::string& name,
     }
 
     auto old_name = GetOtherPartitionName(name);
+    auto slot_suffix = device_->GetSlotSuffix();
+    auto slot = SlotNumberForSlotSuffix(slot_suffix);
 
     CreateLogicalPartitionParams params = {
             .block_device = device_->GetSuperDevice(slot),
