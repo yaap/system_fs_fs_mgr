@@ -99,7 +99,8 @@ std::string ValidateAndSerializeMetadata(const LpMetadata& metadata) {
 // Perform checks so we don't accidentally overwrite valid metadata with
 // potentially invalid metadata, or random partition data with metadata.
 static bool ValidateAndSerializeMetadata([[maybe_unused]] const IPartitionOpener& opener,
-                                         const LpMetadata& metadata, std::string* blob) {
+                                         const LpMetadata& metadata, const std::string& slot_suffix,
+                                         std::string* blob) {
     *blob = ValidateAndSerializeMetadata(metadata);
     if (blob->empty()) {
         return false;
@@ -125,8 +126,12 @@ static bool ValidateAndSerializeMetadata([[maybe_unused]] const IPartitionOpener
     for (const auto& block_device : metadata.block_devices) {
         std::string partition_name = GetBlockDevicePartitionName(block_device);
         if (block_device.flags & LP_BLOCK_DEVICE_SLOT_SUFFIXED) {
-            LERROR << "Slot-suffixed super is no longer supported.";
-            return false;
+            if (slot_suffix.empty()) {
+                LERROR << "Block device " << partition_name << " requires a slot suffix,"
+                       << " which could not be derived from the super partition name.";
+                return false;
+            }
+            partition_name += slot_suffix;
         }
 
         if ((block_device.first_logical_sector + 1) * LP_SECTOR_SIZE > block_device.size) {
@@ -258,11 +263,16 @@ bool FlashPartitionTable(const IPartitionOpener& opener, const std::string& supe
         return false;
     }
 
+    // This is only used in update_engine and fastbootd, where the super
+    // partition should be specified as a name (or by-name link), and
+    // therefore, we should be able to extract a slot suffix.
+    std::string slot_suffix = GetPartitionSlotSuffix(super_partition);
+
     // Before writing geometry and/or logical partition tables, perform some
     // basic checks that the geometry and tables are coherent, and will fit
     // on the given block device.
     std::string metadata_blob;
-    if (!ValidateAndSerializeMetadata(opener, metadata, &metadata_blob)) {
+    if (!ValidateAndSerializeMetadata(opener, metadata, slot_suffix, &metadata_blob)) {
         return false;
     }
 
@@ -329,11 +339,13 @@ bool UpdatePartitionTable(const IPartitionOpener& opener, const std::string& sup
         return false;
     }
 
+    std::string slot_suffix = SlotSuffixForSlotNumber(slot_number);
+
     // Before writing geometry and/or logical partition tables, perform some
     // basic checks that the geometry and tables are coherent, and will fit
     // on the given block device.
     std::string blob;
-    if (!ValidateAndSerializeMetadata(opener, metadata, &blob)) {
+    if (!ValidateAndSerializeMetadata(opener, metadata, slot_suffix, &blob)) {
         return false;
     }
 
@@ -365,7 +377,7 @@ bool UpdatePartitionTable(const IPartitionOpener& opener, const std::string& sup
         // synchronize the backup copy. This guarantees that a partial write
         // still leaves one copy intact.
         std::string old_blob;
-        if (!ValidateAndSerializeMetadata(opener, *primary.get(), &old_blob)) {
+        if (!ValidateAndSerializeMetadata(opener, *primary.get(), slot_suffix, &old_blob)) {
             LERROR << "Error serializing primary metadata to repair corrupted backup";
             return false;
         }
@@ -377,7 +389,7 @@ bool UpdatePartitionTable(const IPartitionOpener& opener, const std::string& sup
         // The backup copy is coherent, and the primary is not. Sync it for
         // safety.
         std::string old_blob;
-        if (!ValidateAndSerializeMetadata(opener, *backup.get(), &old_blob)) {
+        if (!ValidateAndSerializeMetadata(opener, *backup.get(), slot_suffix, &old_blob)) {
             LERROR << "Error serializing backup metadata to repair corrupted primary";
             return false;
         }
